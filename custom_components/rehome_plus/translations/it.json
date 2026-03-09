@@ -1,0 +1,29 @@
+{
+  "title": "ReHome Plus",
+  "config": {
+    "step": {
+      "user": {
+        "title": "ReHome Plus",
+        "description": "Inserisci le credenziali ReHome",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "base_url": "Base URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossibile connettersi. Controlla credenziali e Base URL."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni ReHome Plus",
+        "data": {
+          "scan_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      }
+    }
+  }
+}

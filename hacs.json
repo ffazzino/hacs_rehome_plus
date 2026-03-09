@@ -1,0 +1,8 @@
+{
+  "name": "ReHome Plus",
+  "render_readme": true,
+  "domains": [
+    "rehome_plus"
+  ],
+  "homeassistant": "2024.12.0"
+}
