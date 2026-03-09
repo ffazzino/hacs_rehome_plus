@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import aiohttp
 
-from .const import DEFAULT_BASE_URL
+from .const import DEFAULT_BASE_URL, DEFAULT_REQUEST_TIMEOUT, ZONE_FETCH_CONCURRENCY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class ReHomePlusApi:
         self._password = password
         self._base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self._token: str | None = None
+        self._login_lock = asyncio.Lock()
         self.logger = _LOGGER
 
     async def _request(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -28,7 +29,8 @@ class ReHomePlusApi:
             "Accept": "application/json",
             "X-Requested-With": "XMLHttpRequest",
         }
-        async with self._session.get(url, params=params, headers=headers, timeout=10) as response:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_REQUEST_TIMEOUT)
+        async with self._session.get(url, params=params, headers=headers, timeout=timeout) as response:
             response.raise_for_status()
             return await response.json()
 
@@ -50,7 +52,9 @@ class ReHomePlusApi:
 
     async def _get_token(self) -> str:
         if not self._token:
-            await self.login()
+            async with self._login_lock:
+                if not self._token:
+                    await self.login()
         return self._token
 
     async def _request_with_token(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -60,9 +64,25 @@ class ReHomePlusApi:
         except aiohttp.ClientResponseError as err:
             if err.status not in (401, 403):
                 raise
-        self._token = None
-        token = await self._get_token()
+        async with self._login_lock:
+            self._token = None
+            token = await self.login()
         return await self._request(path.format(token=token), params=params)
+
+    async def _safe_fetch_dict(self, label: str, fetcher) -> dict[str, Any]:
+        try:
+            data = await fetcher()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            self.logger.warning("Unable to load %s: %s", label, err)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    async def _safe_fetch_zones(self) -> list[dict[str, Any]]:
+        try:
+            return await self.fetch_zones()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            self.logger.warning("Unable to load zones: %s", err)
+            return []
 
     async def fetch_status(self) -> dict[str, Any]:
         return await self._request_with_token("statusAndTemperatures/{token}")
@@ -81,18 +101,24 @@ class ReHomePlusApi:
         return await self._request_with_token("metersHistory/{token}")
 
     async def fetch_all(self) -> dict[str, Any]:
-        status, zones, consumption, meters = await asyncio.gather(
-            self.fetch_status(),
-            self.fetch_zones(),
-            self.fetch_consumption(),
-            self.fetch_meters_history(),
+        status = await self.fetch_status()
+        zones = await self._safe_fetch_zones()
+        consumption, meters = await asyncio.gather(
+            self._safe_fetch_dict("consumption", self.fetch_consumption),
+            self._safe_fetch_dict("meters history", self.fetch_meters_history),
         )
 
         zone_ids = [str(zone.get("id")) for zone in zones if zone.get("id") is not None]
-        zone_payloads = await asyncio.gather(
-            *(self.fetch_zone_temperatures(zone_id) for zone_id in zone_ids),
-            return_exceptions=True,
-        )
+        semaphore = asyncio.Semaphore(ZONE_FETCH_CONCURRENCY)
+
+        async def _fetch_zone(zone_id: str) -> dict[str, Any] | Exception:
+            async with semaphore:
+                try:
+                    return await self.fetch_zone_temperatures(zone_id)
+                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+                    return err
+
+        zone_payloads = await asyncio.gather(*(_fetch_zone(zone_id) for zone_id in zone_ids))
 
         zones_data: dict[str, dict[str, Any]] = {}
         for zone_id, payload in zip(zone_ids, zone_payloads, strict=False):
