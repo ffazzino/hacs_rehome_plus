@@ -20,10 +20,30 @@
     "step": {
       "init": {
         "title": "ReHome Plus options",
+        "menu_options": {
+          "settings": "Refresh settings",
+          "credentials": "Update credentials"
+        }
+      },
+      "settings": {
+        "title": "Refresh settings",
         "data": {
           "scan_interval": "Refresh interval (seconds)"
         }
+      },
+      "credentials": {
+        "title": "Update ReHome credentials",
+        "description": "Enter the credentials currently valid for your ReHome account.",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "base_url": "Base URL"
+        }
       }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect. Check credentials and Base URL.",
+      "already_configured": "This account is already configured."
     }
   }
 }

@@ -62,4 +62,5 @@ In this workspace the HACS package lives under:
 
 - Polling is cloud-based.
 - Default refresh interval is 60 seconds and can be changed from integration options.
+- ReHome credentials can be updated from `Settings -> Devices & Services -> ReHome Plus -> Configure -> Update credentials` without removing the integration.
 - The integration keeps the current prototype untouched because it uses a separate domain: `rehome_plus`.
