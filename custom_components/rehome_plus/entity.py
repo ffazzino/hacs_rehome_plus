@@ -23,9 +23,17 @@ class ReHomePlusEntity(CoordinatorEntity):
         )
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | int]:
+    def system_status_code(self) -> int | None:
+        status = (self.coordinator.data or {}).get("status") or {}
+        value = status.get("status")
+        if value not in (0, 1, 2, "0", "1", "2"):
+            return None
+        return int(value)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | int | None]:
         zones = self.coordinator.data.get("zones", [])
-        status_code = int(self.coordinator.data.get("status", {}).get("status", 0))
+        status_code = self.system_status_code
         return {
             "system_status": SYSTEM_STATUS_LABELS.get(status_code, "unknown"),
             "status_code": status_code,

@@ -118,6 +118,7 @@ def _install_homeassistant_stubs():
 
     update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
     update_coordinator.DataUpdateCoordinator = object
+    update_coordinator.UpdateFailed = type("UpdateFailed", (Exception,), {})
 
     sys.modules["homeassistant"] = homeassistant
     sys.modules["homeassistant.config_entries"] = config_entries

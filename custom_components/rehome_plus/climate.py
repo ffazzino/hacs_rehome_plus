@@ -32,7 +32,7 @@ async def async_setup_entry(
         zone_name = zone.get("name") or f"Zona {zone_id}"
         entities.append(ReHomeZoneClimate(coordinator, entry, ZoneDescriptor(zone_id=zone_id, zone_name=zone_name)))
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class ReHomeMainClimate(ReHomePlusEntity, ClimateEntity):
@@ -58,8 +58,10 @@ class ReHomeMainClimate(ReHomePlusEntity, ClimateEntity):
         return status.get("setPointTemperature") or status.get("envTemperature")
 
     @property
-    def hvac_mode(self) -> HVACMode:
-        status = int(self._status().get("status", 0))
+    def hvac_mode(self) -> HVACMode | None:
+        status = self.system_status_code
+        if status is None:
+            return None
         if status == 0:
             return HVACMode.OFF
         if status == 2:
@@ -108,8 +110,10 @@ class ReHomeZoneClimate(ReHomePlusEntity, ClimateEntity):
         return data.get("currentEnvTempSetPoint") or data.get("envTemperature")
 
     @property
-    def hvac_mode(self) -> HVACMode:
-        status = int(self.coordinator.data.get("status", {}).get("status", 0))
+    def hvac_mode(self) -> HVACMode | None:
+        status = self.system_status_code
+        if status is None:
+            return None
         if status == 0:
             return HVACMode.OFF
         if status == 2:

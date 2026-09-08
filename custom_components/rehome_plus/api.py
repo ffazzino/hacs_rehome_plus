@@ -21,6 +21,7 @@ class ReHomePlusApi:
         self._base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self._token: str | None = None
         self._login_lock = asyncio.Lock()
+        self._zones: list[dict[str, Any]] | None = None
         self.logger = _LOGGER
 
     async def _request(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -44,9 +45,13 @@ class ReHomePlusApi:
                 "gctoken": gctoken,
             },
         )
-        token = data.get("token")
-        if not token:
-            raise ValueError("Missing token in login response")
+        if not isinstance(data, dict):
+            raise ValueError("Invalid login response")
+
+        # ReHome's web client continues with the client-generated gctoken when
+        # the login response omits a token. Prefer a server-issued token when
+        # one is available to preserve compatibility with existing accounts.
+        token = data.get("token") or gctoken
         self._token = token
         return token
 
@@ -65,31 +70,37 @@ class ReHomePlusApi:
             if err.status not in (401, 403):
                 raise
         async with self._login_lock:
-            self._token = None
-            token = await self.login()
+            if not self._token or self._token == token:
+                self._token = None
+                await self.login()
+            token = self._token
         return await self._request(path.format(token=token), params=params)
 
     async def _safe_fetch_dict(self, label: str, fetcher) -> dict[str, Any]:
         try:
             data = await fetcher()
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
-            self.logger.warning("Unable to load %s: %s", label, err)
+            self.logger.debug("Unable to load %s (%s)", label, type(err).__name__)
             return {}
         return data if isinstance(data, dict) else {}
 
-    async def _safe_fetch_zones(self) -> list[dict[str, Any]]:
-        try:
-            return await self.fetch_zones()
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
-            self.logger.warning("Unable to load zones: %s", err)
-            return []
-
     async def fetch_status(self) -> dict[str, Any]:
-        return await self._request_with_token("statusAndTemperatures/{token}")
+        data = await self._request_with_token("statusAndTemperatures/{token}")
+        if not isinstance(data, dict) or data.get("status") not in (0, 1, 2, "0", "1", "2"):
+            # Some backend failures return HTTP 200 with an empty status.
+            # Discard the session so the next scheduled poll authenticates again.
+            self._token = None
+            raise ValueError("Missing or invalid system status")
+        return data
 
     async def fetch_zones(self) -> list[dict[str, Any]]:
         data = await self._request_with_token("zones/{token}")
-        return data.get("zones", [])
+        zones = data.get("zones") if isinstance(data, dict) else None
+        if not isinstance(zones, list) or any(
+            not isinstance(zone, dict) or zone.get("id") is None for zone in zones
+        ):
+            raise ValueError("Invalid zones response")
+        return zones
 
     async def fetch_zone_temperatures(self, zone_id: str) -> dict[str, Any]:
         return await self._request_with_token("zoneTemperatures/{token}", params={"zoneId": zone_id})
@@ -102,7 +113,15 @@ class ReHomePlusApi:
 
     async def fetch_all(self) -> dict[str, Any]:
         status = await self.fetch_status()
-        zones = await self._safe_fetch_zones()
+        try:
+            zones = await self.fetch_zones()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            if self._zones is None:
+                # Retry setup rather than permanently omitting room entities.
+                raise
+            zones = self._zones
+        else:
+            self._zones = zones
         consumption, meters = await asyncio.gather(
             self._safe_fetch_dict("consumption", self.fetch_consumption),
             self._safe_fetch_dict("meters history", self.fetch_meters_history),
@@ -114,16 +133,19 @@ class ReHomePlusApi:
         async def _fetch_zone(zone_id: str) -> dict[str, Any] | Exception:
             async with semaphore:
                 try:
-                    return await self.fetch_zone_temperatures(zone_id)
+                    payload = await self.fetch_zone_temperatures(zone_id)
+                    if not isinstance(payload, dict):
+                        raise ValueError("Invalid zone response")
+                    return payload
                 except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
                     return err
 
         zone_payloads = await asyncio.gather(*(_fetch_zone(zone_id) for zone_id in zone_ids))
 
         zones_data: dict[str, dict[str, Any]] = {}
-        for zone_id, payload in zip(zone_ids, zone_payloads, strict=False):
+        for zone_id, payload in zip(zone_ids, zone_payloads):
             if isinstance(payload, Exception):
-                self.logger.warning("Unable to load zone %s: %s", zone_id, payload)
+                self.logger.debug("Unable to load zone %s (%s)", zone_id, type(payload).__name__)
                 continue
             zones_data[zone_id] = payload
 

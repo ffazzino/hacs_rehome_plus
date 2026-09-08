@@ -1,10 +1,10 @@
 {
   "domain": "rehome_plus",
   "name": "ReHome Plus",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "config_flow": true,
-  "documentation": "https://github.com/example/rehome-plus",
-  "issue_tracker": "https://github.com/example/rehome-plus/issues",
+  "documentation": "https://github.com/ffazzino/hacs_rehome_plus",
+  "issue_tracker": "https://github.com/ffazzino/hacs_rehome_plus/issues",
   "codeowners": [],
   "iot_class": "cloud_polling",
   "requirements": [],
