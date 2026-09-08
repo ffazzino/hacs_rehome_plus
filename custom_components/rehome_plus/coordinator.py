@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ReHomePlusApi
 from .const import CONF_BASE_URL, CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
@@ -20,7 +21,11 @@ def build_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> DataUpdateCoor
     )
 
     async def async_update_data():
-        return await api.fetch_all()
+        try:
+            async with asyncio.timeout(90):
+                return await api.fetch_all()
+        except ValueError as err:
+            raise UpdateFailed("Invalid response from ReHome cloud") from err
 
     interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     coordinator = DataUpdateCoordinator(

@@ -64,3 +64,21 @@ In this workspace the HACS package lives under:
 - Default refresh interval is 60 seconds and can be changed from integration options.
 - ReHome credentials can be updated from `Settings -> Devices & Services -> ReHome Plus -> Configure -> Update credentials` without removing the integration.
 - The integration keeps the current prototype untouched because it uses a separate domain: `rehome_plus`.
+
+## Recovery from cloud outages (1.0.1)
+
+The coordinator retries transient failures at the configured polling interval.
+Invalid or missing system status is treated as a failed update, and the next
+poll starts a new session. Initial zone discovery failures retry setup; later
+discovery failures reuse known zone IDs so room readings can recover.
+Each refresh has a 90-second overall deadline, with 20-second request timeouts.
+Entities use the initial coordinator snapshot without requesting another cloud
+refresh during platform setup. Options reloads use Home Assistant's managed
+config-entry lifecycle.
+
+After updating the integration files, restart Home Assistant once to load the
+Python changes. No periodic reload automation is needed. A cloud outage can
+still make readings unavailable until the service responds again.
+
+Regression checks: `python3 -m unittest discover -v` (dependency-light unit
+tests; not a full Home Assistant runtime suite).
